@@ -8,6 +8,10 @@ spring:
     url: jdbc:postgresql://localhost:5432/${POSTGRES_DB:wallet}
     username: ${POSTGRES_USER:wallet}
     password: ${POSTGRES_PASSWORD:wallet_pass}
+  jackson:
+    deserialization:
+      # amounts are integer paise: reject 33.33 instead of silently truncating it to 33
+      accept-float-as-int: false
   jpa:
     hibernate:
       ddl-auto: validate

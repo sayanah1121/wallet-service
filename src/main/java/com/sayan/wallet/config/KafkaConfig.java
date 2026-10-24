@@ -1,6 +1,7 @@
 package com.sayan.wallet.config;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.TopicPartition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -24,13 +25,16 @@ public class KafkaConfig {
         return TopicBuilder.name(TRANSFER_TOPIC + ".DLT").partitions(3).replicas(1).build();
     }
 
-    // Retry 3 times (1s, 2s, 4s), then publish the record to <topic>.DLT
+    // Retry 3 times (1s, 2s, 4s), then publish the record to <topic>.DLT.
+    // The resolver is explicit because the recoverer's default destination is <topic>-dlt.
     @Bean
     DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> template) {
         ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(3);
         backOff.setInitialInterval(1000);
         backOff.setMultiplier(2.0);
         backOff.setMaxInterval(8000);
-        return new DefaultErrorHandler(new DeadLetterPublishingRecoverer(template), backOff);
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
+                (record, ex) -> new TopicPartition(record.topic() + ".DLT", record.partition()));
+        return new DefaultErrorHandler(recoverer, backOff);
     }
 }

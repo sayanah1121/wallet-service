@@ -29,7 +29,9 @@ public class SecurityConfig {
         http.csrf(csrf -> csrf.disable())
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a -> a
-                .requestMatchers("/api/v1/auth/**", "/actuator/health/**").permitAll()
+                // /error must be open: the error dispatch carries no authentication, so securing it
+                // turned every unhandled 500 into an empty 401
+                .requestMatchers("/api/v1/auth/**", "/actuator/health/**", "/error").permitAll()
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .exceptionHandling(e -> e

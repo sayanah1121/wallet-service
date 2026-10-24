@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/wallet_test
+  kafka:
+    listener:
+      auto-startup: false
+
+app:
+  reconciliation:
+    cron: "-"
