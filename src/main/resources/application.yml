@@ -27,3 +27,10 @@ management:
     web:
       exposure:
         include: health,info
+
+
+app:
+  jwt:
+    secret: "${JWT_SECRET:b3f513d677fcca7c655ff0602f3ee37eb018a39495dc2dbebfc345eb911e6d85}"
+    access-token-minutes: 15
+    refresh-token-days: 7

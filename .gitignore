@@ -35,3 +35,4 @@ build/
 .env
 env.sh
 boot.log
+boot.log
