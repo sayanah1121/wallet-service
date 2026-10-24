@@ -1,5 +1,6 @@
 package com.sayan.wallet.transaction;
 
+import com.sayan.wallet.cache.WalletCache;
 import com.sayan.wallet.common.exception.ApiException;
 import com.sayan.wallet.idempotency.IdempotencyKey;
 import com.sayan.wallet.idempotency.IdempotencyKeyRepository;
@@ -14,6 +15,7 @@ import com.sayan.wallet.wallet.WalletService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
@@ -21,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.sayan.wallet.cache.WalletCache;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +34,7 @@ public class TransferService {
     private final LedgerEntryRepository ledger;
     private final IdempotencyKeyRepository idempotency;
     private final WalletCache cache;
+    private final TransferEventPublisher events;
 
     @Transactional
     public TransferResponse transfer(UUID senderUserId, String idemKey, TransferRequest req) {
@@ -87,8 +89,12 @@ public class TransferService {
                 .orElseThrow(() -> new IllegalStateException("Idempotency record missing"));
         record.setTransactionId(tx.getId());
         record.setBalanceAfter(sender.getBalance());
-        cache.evictAfterCommit(senderUserId, recipient.getId());
 
+        // 6. After commit: drop cached balances and publish the event
+        cache.evictAfterCommit(senderUserId, recipient.getId());
+        events.publishAfterCommit(new TransferCompletedEvent(
+                tx.getId(), senderUserId, recipient.getId(),
+                req.amount(), sender.getCurrency(), Instant.now().toString()));
 
         return new TransferResponse(tx.getId(), sender.getBalance(), sender.getCurrency());
     }
