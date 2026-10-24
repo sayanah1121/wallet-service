@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.sayan.wallet.wallet.WalletService;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +29,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokens;
     private final PasswordEncoder encoder;
     private final JwtService jwt;
+    private final WalletService walletService;
 
     @Value("${app.jwt.refresh-token-days}")
     private long refreshDays;
@@ -43,6 +45,7 @@ public class AuthService {
         u.setFullName(req.fullName().trim());
         u.setPasswordHash(encoder.encode(req.password()));
         users.save(u);
+        walletService.createUserWallet(u.getId());
         return issueTokens(u);
     }
 
