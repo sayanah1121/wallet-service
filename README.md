@@ -16,6 +16,7 @@ flowchart TD
     Kafka --> Hook["Webhook consumer<br/>HMAC-signed, retries"]
     Kafka -.->|"after 3 failed retries"| DLT{{"transfer-completed.DLT"}}
     Notify --> PG
+    Hook -->|"delivery log"| PG
     Hook --> Merchant["Merchant endpoint"]
     Job["Nightly reconciliation job<br/>Redis lock, 02:00 IST"] --> PG
 ```
@@ -28,6 +29,7 @@ flowchart TD
 - **Double-entry ledger:** every money movement writes a transaction plus a debit and a credit that cancel out
 - **Redis:** fixed-window rate limiting (atomic Lua script) and a balance cache evicted after commit; both fail open if Redis is down
 - **Kafka:** `TransferCompleted` events published after commit; in-app notifications; HMAC-SHA256 signed webhooks; exponential-backoff retries with a dead-letter topic
+- **Webhook dedupe:** each successful delivery is recorded per `(transaction, endpoint)`, so a redelivered Kafka record does not post twice
 - **Reconciliation:** nightly job (and admin API) that verifies the ledger against wallet balances
 - **Ops:** Flyway migrations, Actuator health, Dockerfile, GitHub Actions CI
 
@@ -41,6 +43,7 @@ flowchart TD
 | Rounding errors | Integer minor units (paise) end to end |
 | Events for rolled-back transfers | Kafka publish and cache eviction run in `afterCommit` |
 | Duplicate Kafka delivery | Notifications have a unique `(transaction_id, user_id)` constraint, so a redelivered event is a no-op |
+| Duplicate webhook posts on Kafka redelivery | `webhook_deliveries` records each successful `(transaction_id, endpoint_id)` under a composite primary key, so a redelivered event skips endpoints that were already delivered |
 | Leaked database | Refresh tokens are stored hashed; passwords use BCrypt |
 | Silent ledger corruption | Reconciliation checks four invariants (below) |
 
@@ -89,32 +92,39 @@ Or run everything, including the app, in Docker:
 docker compose --profile app up -d --build
 ```
 
-Then try the end-to-end demo:
+Then try the end-to-end demo (it waits for the app to be healthy first):
 
 ```bash
 ./scripts/demo.sh
 ```
 
+The demo registers two users, tops up a wallet, makes a transfer, retries it with the same idempotency key, triggers the 422 cases (key reuse with a different body, overdraft), and shows balances, the ledger, and the Kafka-delivered notifications.
+
 ## Tests
 
+64 automated tests (JUnit 5 and Spring Boot integration tests) run on every push in CI against real Postgres, Redis, and Kafka service containers, followed by a Docker image build.
+
+| Area | Test classes (count) |
+| --- | --- |
+| Concurrency and money safety | `DoubleSpendSuiteTest` (4), `TransferConcurrencyTest` (6), `ContentionRecoveryTest` (2), `PrecisionBoundaryTest` (5) |
+| Idempotency | `IdempotencyEdgeCaseTest` (8) |
+| Ledger integrity | `LedgerIntegrityTest` (4), `ReconciliationTest` (2) |
+| Events and webhooks | `EventPipelineTest` (4), `ConsumerReplayTest` (2), `KafkaOutageTest` (2), `WebhookRetryTest` (3) |
+| Security and API behavior | `SecurityBoundaryTest` (8), `SecurityHttpTest` (5), `RateLimitTest` (5), `ErrorResponseTest` (3) |
+| Application startup | `WalletApplicationTests` (1) |
+
+Run them locally with:
+
 ```bash
+docker compose up -d
+docker exec wallet-postgres psql -U wallet -d wallet -c "create database wallet_test;"   # once
 ./mvnw test
 ```
-
-Integration tests run against a separate `wallet_test` database (`docker exec wallet-postgres psql -U wallet -d wallet -c "create database wallet_test;"` once). They include:
-
-- 30 parallel transfers against a balance that covers only 10: exactly 10 succeed and the balance never goes negative
-- 10 simultaneous requests with the same idempotency key: money moves once
-- Opposing transfers fired in parallel: no deadlock
-- Reconciliation detects a deliberately corrupted balance
-- Security rules: 401 without a token, 403 for a non-admin, refresh tokens work only once
-
-CI runs the suite on every push against Postgres, Redis, and Kafka service containers, then builds the Docker image.
 
 ## Known limitations and next steps
 
 - **Transactional outbox:** events are published after commit, so a crash between commit and publish can lose an event. An outbox table plus a relay would make publishing reliable.
-- **Webhook targets:** URLs are not yet restricted, so a production version needs SSRF protection (block private and loopback ranges).
+- **Webhook delivery is at least once:** successful deliveries are recorded per `(transaction, endpoint)`, but a crash between the HTTP call and the row insert can still produce one duplicate post, so receivers should dedupe on `transactionId`. Webhook URLs are also not yet restricted, so a production version needs SSRF protection (block private and loopback ranges).
 - **Rate limiting:** fixed-window counters allow a burst at window edges; a sliding window or token bucket would be smoother.
 - **Secrets:** the JWT secret has a development default; production must set `JWT_SECRET`.
 - **Deployment:** not hosted yet. The Docker setup is deployable to a single VM or to managed services.
