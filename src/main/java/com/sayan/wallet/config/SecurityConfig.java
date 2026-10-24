@@ -2,6 +2,8 @@ package com.sayan.wallet.config;
 
 import com.sayan.wallet.auth.JwtAuthFilter;
 import com.sayan.wallet.auth.JwtService;
+import com.sayan.wallet.ratelimit.RateLimitFilter;
+import com.sayan.wallet.ratelimit.RateLimiter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -22,7 +24,8 @@ public class SecurityConfig {
     PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, JwtService jwtService) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http, JwtService jwtService,
+                                    RateLimiter rateLimiter) throws Exception {
         http.csrf(csrf -> csrf.disable())
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a -> a
@@ -30,7 +33,8 @@ public class SecurityConfig {
                 .anyRequest().authenticated())
             .exceptionHandling(e -> e.authenticationEntryPoint(
                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-            .addFilterBefore(new JwtAuthFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(new JwtAuthFilter(jwtService), UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(new RateLimitFilter(rateLimiter), JwtAuthFilter.class);
         return http.build();
     }
 }

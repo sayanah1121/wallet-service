@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.sayan.wallet.cache.WalletCache;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +32,7 @@ public class TransferService {
     private final PaymentTransactionRepository transactions;
     private final LedgerEntryRepository ledger;
     private final IdempotencyKeyRepository idempotency;
+    private final WalletCache cache;
 
     @Transactional
     public TransferResponse transfer(UUID senderUserId, String idemKey, TransferRequest req) {
@@ -85,6 +87,8 @@ public class TransferService {
                 .orElseThrow(() -> new IllegalStateException("Idempotency record missing"));
         record.setTransactionId(tx.getId());
         record.setBalanceAfter(sender.getBalance());
+        cache.evictAfterCommit(senderUserId, recipient.getId());
+
 
         return new TransferResponse(tx.getId(), sender.getBalance(), sender.getCurrency());
     }

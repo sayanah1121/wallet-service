@@ -20,6 +20,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.sayan.wallet.cache.WalletCache;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +31,7 @@ public class WalletService {
     private final WalletRepository wallets;
     private final PaymentTransactionRepository transactions;
     private final LedgerEntryRepository ledger;
+    private final WalletCache cache;
 
     @Transactional
     public void createUserWallet(UUID userId) {
@@ -38,10 +40,14 @@ public class WalletService {
         wallets.save(w);
     }
 
-    @Transactional(readOnly = true)
+       @Transactional(readOnly = true)
     public WalletResponse getMyWallet(UUID userId) {
-        Wallet w = wallets.findByUserId(userId).orElseThrow(this::walletNotFound);
-        return new WalletResponse(w.getId(), w.getBalance(), w.getCurrency());
+        return cache.get(userId).orElseGet(() -> {
+            Wallet w = wallets.findByUserId(userId).orElseThrow(this::walletNotFound);
+            WalletResponse response = new WalletResponse(w.getId(), w.getBalance(), w.getCurrency());
+            cache.put(userId, response);
+            return response;
+        });
     }
 
     @Transactional
@@ -65,6 +71,7 @@ public class WalletService {
 
         ledger.save(entry(tx.getId(), system.getId(), Direction.DEBIT, amount, system.getBalance()));
         ledger.save(entry(tx.getId(), user.getId(), Direction.CREDIT, amount, user.getBalance()));
+        cache.evictAfterCommit(userId);
 
         return new TopUpResponse(tx.getId(), user.getBalance(), user.getCurrency());
     }
