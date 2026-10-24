@@ -79,7 +79,7 @@ public class WalletService {
 
     // Always lock wallets in the same (sorted id) order so two concurrent
     // transactions can never wait on each other in a cycle (deadlock).
-    private Map<UUID, Wallet> lockInOrder(UUID a, UUID b) {
+    public Map<UUID, Wallet> lockInOrder(UUID a, UUID b) {
         Map<UUID, Wallet> locked = new HashMap<>();
         for (UUID id : Stream.of(a, b).sorted().toList()) {
             locked.put(id, wallets.findByIdForUpdate(id).orElseThrow(this::walletNotFound));
@@ -87,7 +87,7 @@ public class WalletService {
         return locked;
     }
 
-    private LedgerEntry entry(UUID txId, UUID walletId, Direction dir, long amount, long balanceAfter) {
+    public LedgerEntry entry(UUID txId, UUID walletId, Direction dir, long amount, long balanceAfter) {
         LedgerEntry e = new LedgerEntry();
         e.setTransactionId(txId);
         e.setWalletId(walletId);
