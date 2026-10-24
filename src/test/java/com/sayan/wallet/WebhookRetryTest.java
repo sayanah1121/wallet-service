@@ -24,6 +24,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -104,16 +105,26 @@ class WebhookRetryTest extends IntegrationTestBase {
         return "sha256=" + HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));
     }
 
+    // Reads every record currently in the topic. assign() instead of subscribe(): a fresh consumer group
+    // waits group.initial.rebalance.delay.ms (3s by default, 0 in our compose file) before it gets any
+    // partitions, so a short subscribe-and-poll window silently reads nothing on a default broker (CI).
     private List<ConsumerRecord<String, String>> readAll(String topic, Duration window) {
         Map<String, Object> config = consumerFactory.getConfigurationProperties();
         var props = new java.util.HashMap<>(config);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + UUID.randomUUID());
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.remove(ConsumerConfig.GROUP_ID_CONFIG);
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false); // probing must not create the topic
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         List<ConsumerRecord<String, String>> out = new ArrayList<>();
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
-            consumer.subscribe(List.of(topic));
+            List<TopicPartition> partitions = consumer.partitionsFor(topic, Duration.ofSeconds(5)).stream()
+                    .map(p -> new TopicPartition(p.topic(), p.partition())).toList();
+            if (partitions.isEmpty()) {
+                return out; // topic does not exist
+            }
+            consumer.assign(partitions);
+            consumer.seekToBeginning(partitions);
             long deadline = System.nanoTime() + window.toNanos();
             while (System.nanoTime() < deadline) {
                 consumer.poll(Duration.ofMillis(500)).forEach(out::add);
