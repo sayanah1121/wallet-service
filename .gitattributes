@@ -1,3 +1,8 @@
+* text=auto
 /mvnw text eol=lf
+*.sh text eol=lf
 *.cmd text eol=crlf
+# binary: never rewrite line endings (the committed test report is a PDF)
 *.pdf binary
+*.png binary
+*.jar binary

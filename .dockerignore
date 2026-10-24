@@ -1,0 +1,11 @@
+target/
+.git/
+.github/
+.idea/
+.vscode/
+.env
+env.sh
+boot.log
+tools/
+docs/
+*.md
